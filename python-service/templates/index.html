@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent MRI Scheduling</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="hero">
+    <div class="hero-inner">
+        <div>
+            <p class="eyebrow">AIML FINAL-YEAR PROJECT</p>
+            <h1>Intelligent MRI Scheduling</h1>
+            <p class="subtitle">Deep Reinforcement Learning based MRI scheduling simulation</p>
+        </div>
+        <div class="model-pill">DQN MODEL · 12 → 128 → 128 → 64 → 4</div>
+    </div>
+</header>
+
+<main class="container">
+    <section class="card intro-card">
+        <div>
+            <h2>Simulation Dashboard</h2>
+            <p>This prototype uses synthetic patient data and the trained DQN policy to make sequential MRI scheduling decisions.</p>
+        </div>
+        <div class="note">Simulation only — not a clinical decision-support system.</div>
+    </section>
+
+    <section class="card">
+        <div class="section-head">
+            <div>
+                <h2>1. Patient Queue</h2>
+                <p>Add patients and define the current MRI clock.</p>
+            </div>
+            <label class="time-box">Current time (minutes)
+                <input id="currentTime" type="number" min="0" value="60">
+            </label>
+        </div>
+
+        <div class="scenario-box">
+            <div class="section-head compact">
+                <div><h3>Test Scenarios</h3><p>Load predefined cases to validate how the DQN behaves under different patient conditions.</p></div>
+            </div>
+            <div class="scenario-buttons">
+                <button class="ghost" onclick="loadScenario('emergency')">Emergency Heavy</button>
+                <button class="ghost" onclick="loadScenario('starvation')">Long-Wait / Starvation</button>
+                <button class="ghost" onclick="loadScenario('mixed')">Mixed Arrivals</button>
+                <button class="ghost" onclick="loadScenario('balanced')">Balanced Queue</button>
+            </div>
+            <div id="scenarioDescription" class="scenario-description">Choose a scenario to automatically load test patients.</div>
+        </div>
+
+        <div class="form-grid">
+            <label>Patient ID<input id="patientId" type="text" placeholder="P001"></label>
+            <label>Priority<select id="priority"><option>Emergency</option><option>High</option><option>Normal</option></select></label>
+            <label>Arrival time<input id="arrivalTime" type="number" min="0" value="20"></label>
+            <label>Scan duration (1–45 min)<input id="scanDuration" type="number" min="1" max="45" value="30"></label>
+        </div>
+        <div class="actions">
+            <button class="secondary" onclick="addPatient()">+ Add Patient</button>
+            <button class="ghost" onclick="loadExample()">Load Example</button>
+            <button class="ghost danger" onclick="clearPatients()">Clear</button>
+        </div>
+        <div class="table-wrap">
+            <table id="patientTable"><thead><tr><th>Patient</th><th>Priority</th><th>Arrival</th><th>Duration</th><th>Waiting</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="dual-buttons">
+            <button class="secondary big" onclick="runScheduler()">Run One DQN Decision</button>
+            <button class="primary big" onclick="runFullSchedule()">Generate Full MRI Schedule</button>
+            <p class="muted">Full-schedule simulation starts at time 0 and automatically advances to the first patient arrival.</p>
+        </div>
+        <div id="error" class="error hidden"></div>
+    </section>
+
+    <section id="resultCard" class="card hidden">
+        <div class="section-head"><div><h2>2. DQN Decision</h2><p>The trained policy selected the next patient.</p></div><span class="badge">SELECTED</span></div>
+        <div class="decision">
+            <div class="selected-id" id="selectedId">P001</div>
+            <div class="decision-details">
+                <div><span>Priority</span><strong id="selectedPriority">Emergency</strong></div>
+                <div><span>Waiting</span><strong id="selectedWaiting">40 min</strong></div>
+                <div><span>Scan duration</span><strong id="selectedDuration">30 min</strong></div>
+                <div><span>Q-value</span><strong id="selectedQ">0.0000</strong></div>
+            </div>
+        </div>
+        <div class="explanation"><h3>Why was this patient selected?</h3><p id="explanation"></p></div>
+        <h3>Candidate Q-values</h3>
+        <div class="table-wrap"><table id="candidateTable"><thead><tr><th>Rank</th><th>Patient</th><th>Priority</th><th>Waiting</th><th>Duration</th><th>Q-value</th></tr></thead><tbody></tbody></table></div>
+        <div class="comparison"><div><span>FIFO would select</span><strong id="fifoChoice">—</strong></div><div><span>Priority policy would select</span><strong id="priorityChoice">—</strong></div></div>
+    </section>
+
+    <section id="scheduleCard" class="card hidden">
+        <div class="section-head">
+            <div><h2>3. Complete MRI Schedule</h2><p>Sequential DQN decisions and assigned MRI slots.</p></div>
+            <button class="secondary" onclick="downloadSchedule()">Download Schedule CSV</button>
+        </div>
+        <div class="stats-grid" id="statsGrid"></div>
+        <div class="timeline" id="timeline"></div>
+        <h3>Decision History</h3>
+        <div class="table-wrap"><table id="historyTable"><thead><tr><th>#</th><th>Patient</th><th>Priority</th><th>Waiting</th><th>Q-value</th><th>Slot</th><th>Reason</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section class="card">
+        <div class="section-head"><div><h2>4. Measured Model Comparison</h2><p>Results produced by the Colab evaluation.</p></div></div>
+        <div class="table-wrap"><table id="resultsTable"><thead><tr><th>Policy</th><th>Avg Wait</th><th>Emergency Wait</th><th>Max Wait</th><th>MRI Utilization</th><th>Patients Served</th></tr></thead><tbody></tbody></table></div>
+        <div class="chart-grid" id="comparisonCharts"></div>
+    </section>
+</main>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

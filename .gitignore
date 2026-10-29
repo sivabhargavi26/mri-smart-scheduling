@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+client/dist/
+client/build/
+server/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Python files and environments
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Local databases and uploaded files
+*.sqlite
+*.sqlite3
+uploads/
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# Python service generated files
+python-service/__pycache__/
+python-service/*.pyc
+python-service/venv/
+python-service/.venv/
+
+# Generated scheduling results may contain patient data
+python-service/mri_scheduling_results.csv
