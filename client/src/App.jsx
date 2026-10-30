@@ -29,37 +29,48 @@ const [scheduleLoading, setScheduleLoading] = useState(false);
 });
 
 
-  const handleAddPatient = async (event) => {
-    event.preventDefault();
-    setPatientError('');
+const handleAddPatient = async (event) => {
+  event.preventDefault();
+  setPatientError('');
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/patients`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(newPatient),
-      });
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/patients`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(newPatient),
+    });
 
-      const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Could not add patient');
-      }
-
-      setPatients((previousPatients) => [...previousPatients, data]);
-
-      setNewPatient({
-        patientId: '',
-        name: '',
-        priority: 'Normal',
-        scanType: 'MRI',
-      });
-    } catch (error) {
-      setPatientError(error.message);
+    if (!contentType.includes('application/json')) {
+      const errorText = await response.text();
+      console.error('Expected JSON but received:', errorText.slice(0, 300));
+      throw new Error(
+        `The API returned an unexpected response (HTTP ${response.status}). Check the API URL.`
+      );
     }
-  };
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Could not add patient');
+    }
+
+    setPatients((previousPatients) => [...previousPatients, data]);
+
+    setNewPatient({
+      patientId: '',
+      name: '',
+      priority: 'Normal',
+      scanType: 'MRI',
+    });
+  } catch (error) {
+    console.error('Add patient error:', error);
+    setPatientError(error.message);
+  }
+};
 const handleRunDqn = async () => {
   setDqnLoading(true);
   setDqnError('');
@@ -116,7 +127,62 @@ const handleRunDqn = async () => {
     setDqnLoading(false);
   }
 };
+const handleGenerateFullSchedule = async () => {
+  setDqnLoading(true);
+  setDqnError('');
+  setDqnResult(null);
 
+  try {
+    const waitingPatients = patients.filter(
+      (patient) =>
+        String(patient.status || '').trim().toLowerCase() === 'waiting'
+    );
+
+    if (waitingPatients.length === 0) {
+      throw new Error(
+        'No waiting patients found. Please add a patient with Waiting status.'
+      );
+    }
+
+    const dqnPatients = waitingPatients.map((patient) => ({
+      patient_id: patient.patientId,
+      arrival_time: Number(patient.arrivalTime ?? 0),
+      priority: patient.priority,
+      waiting_time: Number(patient.waitingTime ?? 0),
+      scan_duration: Number(patient.scanDuration ?? 20),
+    }));
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/dqn/full-schedule`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          current_time: 0,
+          patients: dqnPatients,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          data.message ||
+          'Could not generate the full MRI schedule.'
+      );
+    }
+
+    setDqnResult(data);
+  } catch (error) {
+    setDqnError(error.message || 'An unexpected error occurred.');
+  } finally {
+    setDqnLoading(false);
+  }
+};
 const handleRunDqnTest = async () => {
   setDqnLoading(true);
   setDqnError('');
@@ -589,6 +655,22 @@ useEffect(() => {
 </button>
 <button
   type="button"
+  onClick={handleGenerateFullSchedule}
+  disabled={dqnLoading}
+  style={{
+    marginLeft: '12px',
+    padding: '10px 16px',
+    borderRadius: '8px',
+    border: '1px solid #16a34a',
+    background: '#f0fdf4',
+    color: '#166534',
+    cursor: dqnLoading ? 'not-allowed' : 'pointer',
+  }}
+>
+  {dqnLoading ? 'Generating...' : 'Generate Full Schedule'}
+</button>
+<button
+  type="button"
   onClick={handleRunDqnTest}
   disabled={dqnLoading}
   style={{
@@ -612,7 +694,7 @@ useEffect(() => {
   <div
     style={{
       marginTop: '28px',
-      maxWidth: '900px',
+      maxWidth: '1100px',
       padding: '24px',
       background: '#ffffff',
       borderRadius: '16px',
@@ -621,307 +703,409 @@ useEffect(() => {
       color: '#0f172a',
     }}
   >
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '12px',
-        marginBottom: '24px',
-      }}
-    >
-      <div>
-        <h2 style={{ margin: 0, fontSize: '24px' }}>
-          AI Scheduling Result
-        </h2>
-        <p style={{ color: '#64748b', marginBottom: 0 }}>
-          DQN-powered patient recommendation
-        </p>
-      </div>
-
-      <span
-        style={{
-          background: '#dcfce7',
-          color: '#166534',
-          padding: '8px 14px',
-          borderRadius: '20px',
-          fontSize: '13px',
-          fontWeight: 600,
-        }}
-      >
-        Decision received
-      </span>
-    </div>
-
-    <div
-      style={{
-        background: '#eff6ff',
-        border: '1px solid #bfdbfe',
-        borderRadius: '12px',
-        padding: '20px',
-        marginBottom: '20px',
-      }}
-    >
-      <p
-        style={{
-          color: '#1d4ed8',
-          fontSize: '13px',
-          fontWeight: 600,
-          margin: '0 0 8px',
-        }}
-      >
-        RECOMMENDED PATIENT
-      </p>
-
-      <h3 style={{ fontSize: '28px', margin: '0 0 12px' }}>
-        {dqnResult.selected?.patient_id || 'N/A'}
-      </h3>
-
-      <span
-        style={{
-          display: 'inline-block',
-          background:
-            dqnResult.selected?.priority === 'Emergency'
-              ? '#fee2e2'
-              : '#dbeafe',
-          color:
-            dqnResult.selected?.priority === 'Emergency'
-              ? '#b91c1c'
-              : '#1d4ed8',
-          padding: '6px 12px',
-          borderRadius: '20px',
-          fontSize: '13px',
-          fontWeight: 600,
-        }}
-      >
-        {dqnResult.selected?.priority || 'Priority unavailable'}
-      </span>
-    </div>
-
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-        gap: '14px',
-        marginBottom: '22px',
-      }}
-    >
-      {[
-        {
-          label: 'Waiting Time',
-          value: dqnResult.selected?.waiting_time,
-          suffix: ' min',
-        },
-        {
-          label: 'Scan Duration',
-          value: dqnResult.selected?.scan_duration,
-          suffix: ' min',
-        },
-        {
-          label: 'DQN Q-Value',
-          value: dqnResult.selected?.q_value,
-          suffix: '',
-        },
-        {
-          label: 'Priority Score',
-          value: dqnResult.selected?.priority_score,
-          suffix: '',
-        },
-      ].map((item) => (
-        <div
-          key={item.label}
-          style={{
-            padding: '18px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '12px',
-            background: '#f8fafc',
-          }}
-        >
-          <p
-            style={{
-              color: '#64748b',
-              fontSize: '13px',
-              margin: '0 0 10px',
-            }}
-          >
-            {item.label}
+    {Array.isArray(dqnResult.schedule) ? (
+      <>
+        {/* FULL DQN SCHEDULE */}
+        <div style={{ marginBottom: '24px' }}>
+          <h2 style={{ margin: 0, fontSize: '26px' }}>
+            Full MRI Schedule
+          </h2>
+          <p style={{ color: '#64748b', lineHeight: 1.6 }}>
+            The DQN model generated a schedule for the waiting patients.
           </p>
 
-          <h3 style={{ margin: 0, fontSize: '23px' }}>
-            {item.value != null
-              ? `${item.value}${item.suffix}`
-              : 'N/A'}
-          </h3>
+          <span
+            style={{
+              display: 'inline-block',
+              padding: '7px 12px',
+              background: '#dcfce7',
+              color: '#166534',
+              borderRadius: '20px',
+              fontWeight: 600,
+              fontSize: '13px',
+            }}
+          >
+            Schedule generated successfully
+          </span>
         </div>
-      ))}
-    </div>
 
-    <div
-      style={{
-        padding: '18px',
-        background: '#f0fdf4',
-        borderLeft: '4px solid #16a34a',
-        borderRadius: '8px',
-      }}
-    >
-      <h3 style={{ margin: '0 0 8px', fontSize: '16px' }}>
-        Why was this patient selected?
-      </h3>
-
-<div style={{ marginTop: '28px' }}>
-  <div style={{ marginBottom: '16px' }}>
-    <h2 style={{ margin: '0 0 6px', fontSize: '21px' }}>
-      Patient Comparison
-    </h2>
-    <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
-      Compare candidate patients evaluated by the DQN model.
-    </p>
-  </div>
-
-  {Array.isArray(dqnResult.candidates) &&
-  dqnResult.candidates.length > 0 ? (
-    <div
-      style={{
-        overflowX: 'auto',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px',
-      }}
-    >
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          textAlign: 'left',
-          fontSize: '14px',
-        }}
-      >
-        <thead>
-          <tr style={{ background: '#f1f5f9', color: '#475569' }}>
-            {[
-              'Patient ID',
-              'Priority',
-              'Waiting Time',
-              'Scan Duration',
-              'Q-Value',
-              'Rank',
-              'Decision',
-            ].map((heading) => (
-              <th
-                key={heading}
-                style={{
-                  padding: '14px 12px',
-                  whiteSpace: 'nowrap',
-                  fontWeight: 600,
-                  borderBottom: '1px solid #e2e8f0',
-                }}
-              >
-                {heading}
-              </th>
-            ))}
-          </tr>
-        </thead>
-
-        <tbody>
-          {dqnResult.candidates.map((candidate, index) => (
-            <tr
-              key={`${candidate.patient_id || 'patient'}-${index}`}
+        {/* METRICS */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: '14px',
+            marginBottom: '28px',
+          }}
+        >
+          {[
+            {
+              label: 'Patients Scheduled',
+              value: dqnResult.metrics?.patients_scheduled ?? dqnResult.schedule.length,
+              suffix: '',
+            },
+            {
+              label: 'Average Waiting Time',
+              value: dqnResult.metrics?.average_wait,
+              suffix: ' min',
+            },
+            {
+              label: 'Maximum Waiting Time',
+              value: dqnResult.metrics?.maximum_wait,
+              suffix: ' min',
+            },
+            {
+              label: 'MRI Utilization',
+              value: dqnResult.metrics?.mri_utilization,
+              suffix: '%',
+            },
+            {
+              label: 'Total Scan Time',
+              value: dqnResult.metrics?.total_scan_time,
+              suffix: ' min',
+            },
+            {
+              label: 'MRI Idle Time',
+              value: dqnResult.metrics?.idle_time,
+              suffix: ' min',
+            },
+          ].map((metric) => (
+            <div
+              key={metric.label}
               style={{
-                background: candidate.selected ? '#f0fdf4' : '#ffffff',
+                padding: '18px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                background: '#f8fafc',
               }}
             >
-              <td style={{ padding: '14px 12px', fontWeight: 600 }}>
-                {candidate.patient_id || 'N/A'}
-              </td>
-
-              <td style={{ padding: '14px 12px' }}>
-                {candidate.priority || 'N/A'}
-              </td>
-
-              <td style={{ padding: '14px 12px' }}>
-                {candidate.waiting_time != null
-                  ? `${candidate.waiting_time} min`
+              <p
+                style={{
+                  color: '#64748b',
+                  fontSize: '13px',
+                  margin: '0 0 10px',
+                }}
+              >
+                {metric.label}
+              </p>
+              <h3 style={{ margin: 0, fontSize: '23px' }}>
+                {metric.value != null
+                  ? `${metric.value}${metric.suffix}`
                   : 'N/A'}
-              </td>
+              </h3>
+            </div>
+          ))}
+        </div>
 
-              <td style={{ padding: '14px 12px' }}>
-                {candidate.scan_duration != null
-                  ? `${candidate.scan_duration} min`
-                  : 'N/A'}
-              </td>
+        {/* FULL SCHEDULE TABLE */}
+        <h3 style={{ marginBottom: '14px' }}>
+          Patient Appointment Schedule
+        </h3>
 
-              <td style={{ padding: '14px 12px' }}>
-                {candidate.q_value != null
-                  ? Number(candidate.q_value).toFixed(4)
-                  : 'N/A'}
-              </td>
+        {dqnResult.schedule.length > 0 ? (
+          <div
+            style={{
+              overflowX: 'auto',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+            }}
+          >
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                textAlign: 'left',
+                fontSize: '14px',
+              }}
+            >
+              <thead>
+                <tr style={{ background: '#f1f5f9', color: '#475569' }}>
+                  {[
+                    'Slot',
+                    'Patient ID',
+                    'Priority',
+                    'Scan Duration',
+                    'Start Time',
+                    'End Time',
+                    'Waiting Time',
+                    'Q-Value',
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      style={{
+                        padding: '14px 12px',
+                        whiteSpace: 'nowrap',
+                        borderBottom: '1px solid #e2e8f0',
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
 
-              <td style={{ padding: '14px 12px' }}>
-                {candidate.rank != null ? candidate.rank : 'N/A'}
-              </td>
-
-              <td style={{ padding: '14px 12px' }}>
-                {candidate.selected ? (
-                  <span
+              <tbody>
+                {dqnResult.schedule.map((item, index) => (
+                  <tr
+                    key={`${item.patient_id || 'patient'}-${index}`}
                     style={{
-                      display: 'inline-block',
-                      padding: '5px 10px',
-                      borderRadius: '20px',
-                      background: '#dcfce7',
-                      color: '#166534',
-                      fontWeight: 600,
-                      whiteSpace: 'nowrap',
+                      background: index % 2 === 0 ? '#ffffff' : '#f8fafc',
                     }}
                   >
-                    Selected
-                  </span>
-                ) : (
-                  <span style={{ color: '#64748b' }}>
-                    Not selected
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  ) : (
-    <p
-      style={{
-        padding: '16px',
-        background: '#f8fafc',
-        borderRadius: '10px',
-        color: '#64748b',
-      }}
-    >
-      No candidate comparison data was returned by the DQN service.
-    </p>
-  )}
-</div>
+                    <td style={{ padding: '13px 12px' }}>
+                      {item.slot ?? index + 1}
+                    </td>
+                    <td
+                      style={{
+                        padding: '13px 12px',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {item.patient_id || 'N/A'}
+                    </td>
+                    <td style={{ padding: '13px 12px' }}>
+                      <span
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '16px',
+                          background:
+                            item.priority === 'Emergency'
+                              ? '#fee2e2'
+                              : item.priority === 'High'
+                                ? '#fef3c7'
+                                : '#dbeafe',
+                          color:
+                            item.priority === 'Emergency'
+                              ? '#b91c1c'
+                              : item.priority === 'High'
+                                ? '#92400e'
+                                : '#1d4ed8',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {item.priority || 'Normal'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '13px 12px' }}>
+                      {item.scan_duration ?? 'N/A'}
+                      {item.scan_duration != null ? ' min' : ''}
+                    </td>
+                    <td style={{ padding: '13px 12px' }}>
+                      {item.start_time ?? 'N/A'}
+                    </td>
+                    <td style={{ padding: '13px 12px' }}>
+                      {item.end_time ?? 'N/A'}
+                    </td>
+                    <td style={{ padding: '13px 12px' }}>
+                      {item.waiting_time ?? 'N/A'}
+                      {item.waiting_time != null ? ' min' : ''}
+                    </td>
+                    <td style={{ padding: '13px 12px' }}>
+                      {item.q_value != null
+                        ? Number(item.q_value).toFixed(3)
+                        : 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p
+            style={{
+              padding: '16px',
+              background: '#f8fafc',
+              borderRadius: '10px',
+              color: '#64748b',
+            }}
+          >
+            The DQN service returned an empty schedule.
+          </p>
+        )}
 
-      <p style={{ margin: 0, lineHeight: 1.7, color: '#334155' }}>
-        {dqnResult.explanation ||
-          'The model returned a scheduling decision without an explanation.'}
-      </p>
-      
-<div style={{ marginTop: '20px' }}>
-  <button
-    type="button"
-    onClick={handleScheduleRecommendedPatient}
-    disabled={scheduleLoading}
-  >
-    {scheduleLoading
-      ? 'Scheduling...'
-      : 'Schedule Recommended Patient'}
-  </button>
+        {/* DQN DECISIONS */}
+        <div style={{ marginTop: '28px' }}>
+          <h3>DQN Scheduling Decisions</h3>
 
-  {scheduleMessage && (
-    <p role="status">{scheduleMessage}</p>
-  )}
-</div>
+          {Array.isArray(dqnResult.decisions) &&
+          dqnResult.decisions.length > 0 ? (
+            dqnResult.decisions.map((decision, index) => (
+              <div
+                key={`${decision.selected_patient || 'decision'}-${index}`}
+                style={{
+                  padding: '16px',
+                  marginBottom: '12px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '10px',
+                }}
+              >
+                <strong>
+                  Slot {index + 1}: {decision.selected_patient || 'Patient'}
+                </strong>
 
-    </div>
+                <p style={{ margin: '8px 0', color: '#334155' }}>
+                  {decision.explanation || 'No explanation was provided.'}
+                </p>
+
+                <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>
+                  Priority: {decision.priority || 'N/A'}
+                  {' | '}
+                  Start: {decision.start_time ?? 'N/A'}
+                  {' | '}
+                  End: {decision.end_time ?? 'N/A'}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p style={{ color: '#64748b' }}>
+              No decision details were returned.
+            </p>
+          )}
+        </div>
+      </>
+    ) : (
+      <>
+        {/* EXISTING SINGLE-PATIENT RECOMMENDATION */}
+        <h2 style={{ marginTop: 0 }}>AI Scheduling Result</h2>
+        <p style={{ color: '#64748b' }}>
+          DQN-powered patient recommendation
+        </p>
+
+        <div
+          style={{
+            padding: '20px',
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '12px',
+            marginBottom: '20px',
+          }}
+        >
+          <p style={{ color: '#1d4ed8', fontWeight: 600 }}>
+            RECOMMENDED PATIENT
+          </p>
+
+          <h3 style={{ fontSize: '28px', margin: '0 0 12px' }}>
+            {dqnResult.selected?.patient_id || 'N/A'}
+          </h3>
+
+          <p>
+            Priority: {dqnResult.selected?.priority || 'N/A'}
+          </p>
+
+          <p>
+            Waiting Time: {dqnResult.selected?.waiting_time ?? 'N/A'} min
+          </p>
+
+          <p>
+            Scan Duration: {dqnResult.selected?.scan_duration ?? 'N/A'} min
+          </p>
+
+          <p>
+            Q-Value: {dqnResult.selected?.q_value ?? 'N/A'}
+          </p>
+
+          <p>
+            {dqnResult.explanation ||
+              'The model returned a recommendation.'}
+          </p>
+        </div>
+
+        <h3>Patient Comparison</h3>
+
+        {Array.isArray(dqnResult.candidates) &&
+        dqnResult.candidates.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                textAlign: 'left',
+              }}
+            >
+              <thead>
+                <tr>
+                  {[
+                    'Patient ID',
+                    'Priority',
+                    'Waiting Time',
+                    'Scan Duration',
+                    'Q-Value',
+                    'Rank',
+                    'Decision',
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      style={{
+                        padding: '12px',
+                        background: '#f1f5f9',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {dqnResult.candidates.map((candidate, index) => (
+                  <tr
+                    key={`${candidate.patient_id || 'patient'}-${index}`}
+                    style={{
+                      background: candidate.selected ? '#f0fdf4' : '#ffffff',
+                    }}
+                  >
+                    <td style={{ padding: '12px' }}>
+                      {candidate.patient_id || 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {candidate.priority || 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {candidate.waiting_time ?? 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {candidate.scan_duration ?? 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {candidate.q_value != null
+                        ? Number(candidate.q_value).toFixed(3)
+                        : 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {candidate.rank ?? 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {candidate.selected ? 'Selected' : 'Not selected'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p style={{ color: '#64748b' }}>
+            No candidate comparison data was returned.
+          </p>
+        )}
+
+        <div style={{ marginTop: '20px' }}>
+          <button
+            type="button"
+            onClick={handleScheduleRecommendedPatient}
+            disabled={scheduleLoading}
+          >
+            {scheduleLoading
+              ? 'Scheduling...'
+              : 'Schedule Recommended Patient'}
+          </button>
+
+          {scheduleMessage && <p role="status">{scheduleMessage}</p>}
+        </div>
+      </>
+    )}
   </div>
 )}
 
