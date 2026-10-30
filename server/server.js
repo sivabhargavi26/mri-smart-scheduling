@@ -63,9 +63,10 @@ app.get('/api/health', async (req, res) => {
 
 
 /* Connect to the existing Python DQN scheduler */
-console.log('DQN SCHEDULE ROUTE REGISTERED');
 app.post('/api/dqn/schedule', async (req, res) => {
   try {
+    console.log('DQN request sent to:', `${DQN_API_URL}/api/schedule`);
+
     const response = await fetch(`${DQN_API_URL}/api/schedule`, {
       method: 'POST',
       headers: {
@@ -74,29 +75,79 @@ app.post('/api/dqn/schedule', async (req, res) => {
       body: JSON.stringify(req.body),
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+
+    console.log('Python DQN status:', response.status);
+    console.log('Python DQN content type:', response.headers.get('content-type'));
+    console.log('Python DQN response:', responseText.slice(0, 1000));
+
+    let data;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      return res.status(502).json({
+        message: 'Python DQN returned a non-JSON response.',
+        pythonStatus: response.status,
+        responsePreview: responseText.slice(0, 300),
+      });
+    }
 
     if (!response.ok) {
       return res.status(response.status).json(data);
     }
 
-    res.json(data);
+    return res.json(data);
   } catch (error) {
-    res.status(502).json({
+    console.error('DQN connection error:', error);
+
+    return res.status(502).json({
       message: 'Could not connect to the Python DQN service.',
       details: error.message,
     });
   }
 });
-
-// Get all patients
-app.get('/api/patients', async (req, res) => {
+app.post('/api/dqn/full-schedule', async (req, res) => {
   try {
-    const patients = await Patient.find().sort({ createdAt: -1 });
-    res.json(patients);
+    console.log(
+      'Full schedule request sent to:',
+      `${DQN_API_URL}/api/full_schedule`
+    );
+
+    const response = await fetch(
+      `${DQN_API_URL}/api/full_schedule`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(req.body),
+      }
+    );
+
+    const responseText = await response.text();
+
+    console.log('Python full-schedule status:', response.status);
+    console.log('Python full-schedule response:', responseText.slice(0, 1000));
+
+    let data;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      return res.status(502).json({
+        message: 'Python DQN returned a non-JSON response.',
+        responsePreview: responseText.slice(0, 300),
+      });
+    }
+
+    return res.status(response.status).json(data);
   } catch (error) {
-    res.status(500).json({
-      message: 'Failed to fetch patients',
+    console.error('Full-schedule connection error:', error.message);
+
+    return res.status(502).json({
+      message: 'Could not connect to the Python DQN service.',
+      details: error.message,
     });
   }
 });
