@@ -107,13 +107,19 @@ app.post('/api/dqn/schedule', async (req, res) => {
     });
   }
 });
+console.log('DEBUG: Python DQN schedule received:', data.schedule);
+console.log('DEBUG: Schedule entries:', data.schedule?.length);
 app.post('/api/dqn/full-schedule', async (req, res) => {
+  const session = await mongoose.startSession();
+
   try {
+    console.log('DEBUG: Starting MongoDB transaction');
     console.log(
       'Full schedule request sent to:',
       `${DQN_API_URL}/api/full_schedule`
     );
 
+    // Get the DQN schedule from the Python service.
     const response = await fetch(
       `${DQN_API_URL}/api/full_schedule`,
       {
@@ -127,9 +133,6 @@ app.post('/api/dqn/full-schedule', async (req, res) => {
 
     const responseText = await response.text();
 
-    console.log('Python full-schedule status:', response.status);
-    console.log('Python full-schedule response:', responseText.slice(0, 1000));
-
     let data;
 
     try {
@@ -141,14 +144,151 @@ app.post('/api/dqn/full-schedule', async (req, res) => {
       });
     }
 
-    return res.status(response.status).json(data);
-  } catch (error) {
-    console.error('Full-schedule connection error:', error.message);
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
 
-    return res.status(502).json({
-      message: 'Could not connect to the Python DQN service.',
-      details: error.message,
+    if (!Array.isArray(data.schedule)) {
+      return res.status(502).json({
+        message: 'Python DQN response does not contain a valid schedule array.',
+      });
+    }
+
+    // No waiting patients were scheduled.
+    if (data.schedule.length === 0) {
+      return res.json({
+        ...data,
+        message: 'The DQN returned an empty schedule. No patients were updated.',
+      });
+    }
+
+    // Validate the complete schedule before changing the database.
+    const seenPatientIds = new Set();
+
+    for (const item of data.schedule) {
+      const patientId = String(item.patient_id ?? '').trim();
+      const startTime = Number(item.start_time);
+      const endTime = Number(item.end_time);
+
+      if (
+        !patientId ||
+        seenPatientIds.has(patientId) ||
+        !Number.isFinite(startTime) ||
+        !Number.isFinite(endTime) ||
+        startTime < 0 ||
+        endTime <= startTime
+      ) {
+        return res.status(502).json({
+          message: 'The DQN returned invalid or duplicate scheduling entries.',
+        });
+      }
+
+      seenPatientIds.add(patientId);
+    }
+
+    // This scheduler uses minutes relative to the start of its schedule.
+    // Convert them into real appointment timestamps.
+    const scheduleStart = new Date();
+    const updates = [];
+
+    for (const item of data.schedule) {
+      const patientId = String(item.patient_id).trim();
+
+      // Only update patients that are still waiting.
+      const patient = await Patient.findOne({
+        patientId,
+        status: 'Waiting',
+      }).session(session);
+
+      if (!patient) {
+        return res.status(409).json({
+          message:
+            `Patient ${patientId} is no longer waiting or does not exist. ` +
+            'No schedule updates were committed. Refresh the patient queue and try again.',
+        });
+      }
+
+      const startMinutes = Number(item.start_time);
+      const endMinutes = Number(item.end_time);
+
+      const scheduledStart = new Date(
+        scheduleStart.getTime() + startMinutes * 60000
+      );
+
+      const scheduledEnd = new Date(
+        scheduleStart.getTime() + endMinutes * 60000
+      );
+
+      // Check the returned duration against the patient's scan duration.
+      const expectedDuration = Number(patient.scanDuration || 20);
+
+      if (
+        !Number.isFinite(expectedDuration) ||
+        expectedDuration <= 0 ||
+        Math.abs(
+          (scheduledEnd.getTime() - scheduledStart.getTime()) / 60000 -
+            expectedDuration
+        ) > 0.01
+      ) {
+        return res.status(502).json({
+          message:
+            `Invalid scan duration returned for patient ${patientId}. ` +
+            'No schedule updates were committed.',
+        });
+      }
+
+      updates.push({
+        patient,
+        scheduledStart,
+        scheduledEnd,
+      });
+    }
+
+    // Commit all patient updates together.
+    await session.withTransaction(async () => {
+      console.log('DEBUG: Saving appointments:', updates.length);
+      for (const update of updates) {
+        const result = await Patient.updateOne(
+          {
+            _id: update.patient._id,
+            status: 'Waiting',
+          },
+          {
+            $set: {
+              status: 'Scheduled',
+              scheduledStart: update.scheduledStart,
+              scheduledEnd: update.scheduledEnd,
+            },
+          },
+          { session }
+        );
+
+        if (result.modifiedCount !== 1) {
+          throw new Error(
+            `Patient ${update.patient.patientId} changed before the schedule could be saved.`
+          );
+        }
+      }
     });
+
+    console.log(
+      `Saved ${updates.length} DQN appointments to MongoDB.`
+    );
+
+    return res.json({
+      ...data,
+      message: 'DQN schedule generated and saved successfully.',
+      savedPatients: updates.length,
+    });
+  } catch (error) {
+    console.error('Full-schedule error:', error);
+
+    return res.status(500).json({
+      message: 'Could not generate and save the full MRI schedule.',
+      error: error.message,
+    });
+  } finally {
+    await session.endSession();
   }
 });
 
