@@ -58,7 +58,22 @@ const handleAddPatient = async (event) => {
       throw new Error(data.message || 'Could not add patient');
     }
 
-    setPatients((previousPatients) => [...previousPatients, data]);
+    // Refresh patient records and dashboard metrics from the API
+const [patientsResponse, metricsResponse] = await Promise.all([
+  fetch(`${API_BASE_URL}/api/patients`),
+  fetch(`${API_BASE_URL}/api/dashboard/metrics`)
+]);
+
+if (!patientsResponse.ok || !metricsResponse.ok) {
+  throw new Error('Patient added, but dashboard data could not refresh.');
+}
+
+const updatedPatients = await patientsResponse.json();
+const updatedMetrics = await metricsResponse.json();
+
+setPatients(updatedPatients);
+setMetrics(updatedMetrics);
+setPatientError('');
 
     setNewPatient({
       patientId: '',
@@ -137,7 +152,8 @@ const handleGenerateFullSchedule = async () => {
       (patient) =>
         String(patient.status || '').trim().toLowerCase() === 'waiting'
     );
-
+    console.log('All patients:', patients);
+    console.log('Waiting patients:', waitingPatients); 
     if (waitingPatients.length === 0) {
       throw new Error(
         'No waiting patients found. Please add a patient with Waiting status.'
@@ -176,7 +192,32 @@ const handleGenerateFullSchedule = async () => {
       );
     }
 
-    setDqnResult(data);
+    
+setDqnResult(data);
+
+// Automatically refresh Patient Queue and dashboard metrics
+try {
+  const [patientsResponse, metricsResponse] = await Promise.all([
+    fetch(`${API_BASE_URL}/api/patients`),
+    fetch(`${API_BASE_URL}/api/dashboard/metrics`)
+  ]);
+
+  if (!patientsResponse.ok || !metricsResponse.ok) {
+    throw new Error('Could not refresh dashboard data.');
+  }
+
+  const updatedPatients = await patientsResponse.json();
+  const updatedMetrics = await metricsResponse.json();
+
+  setPatients(updatedPatients);
+  setMetrics(updatedMetrics);
+
+  console.log('Patient Queue refreshed successfully!');
+  console.log('Dashboard metrics refreshed successfully!');
+} catch (refreshError) {
+  console.error('Dashboard refresh error:', refreshError);
+}
+
   } catch (error) {
     setDqnError(error.message || 'An unexpected error occurred.');
   } finally {
@@ -646,45 +687,76 @@ useEffect(() => {
     {dqnStatus}
   </span>
 </p>
-    <button
-  type="button"
-  onClick={handleRunDqn}
-  disabled={dqnLoading}
->
-  {dqnLoading ? 'Running DQN...' : 'Run AI Scheduling'}
-</button>
-<button
-  type="button"
-  onClick={handleGenerateFullSchedule}
-  disabled={dqnLoading}
+   <div
   style={{
-    marginLeft: '12px',
-    padding: '10px 16px',
-    borderRadius: '8px',
-    border: '1px solid #16a34a',
-    background: '#f0fdf4',
-    color: '#166534',
-    cursor: dqnLoading ? 'not-allowed' : 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '12px',
+    marginTop: '16px',
+    marginBottom: '20px'
   }}
 >
-  {dqnLoading ? 'Generating...' : 'Generate Full Schedule'}
-</button>
-<button
-  type="button"
-  onClick={handleRunDqnTest}
-  disabled={dqnLoading}
-  style={{
-    marginLeft: '12px',
-    padding: '10px 16px',
-    borderRadius: '8px',
-    border: '1px solid #2563eb',
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    cursor: dqnLoading ? 'not-allowed' : 'pointer',
-  }}
->
-  {dqnLoading ? 'Testing DQN...' : 'Test with Sample Patients'}
-</button>
+  <button
+    type="button"
+    onClick={handleRunDqn}
+    disabled={dqnLoading}
+    style={{
+      minWidth: '210px',
+      height: '44px',
+      padding: '0 16px',
+      borderRadius: '8px',
+      border: '1px solid #2563eb',
+      background: '#2563eb',
+      color: '#ffffff',
+      fontWeight: 600,
+      fontSize: '16px',
+      cursor: dqnLoading ? 'not-allowed' : 'pointer'
+    }}
+  >
+    {dqnLoading ? 'Running...' : 'Run AI Scheduling'}
+  </button>
+
+  <button
+    type="button"
+    onClick={handleGenerateFullSchedule}
+    disabled={dqnLoading}
+    style={{
+      minWidth: '210px',
+      height: '44px',
+      padding: '0 16px',
+      borderRadius: '8px',
+      border: '1px solid #16a34a',
+      background: '#f0fdf4',
+      color: '#166534',
+      fontWeight: 600,
+      fontSize: '16px',
+      cursor: dqnLoading ? 'not-allowed' : 'pointer'
+    }}
+  >
+    {dqnLoading ? 'Generating...' : 'Generate Full Schedule'}
+  </button>
+
+  <button
+    type="button"
+    onClick={handleRunDqnTest}
+    disabled={dqnLoading}
+    style={{
+      minWidth: '210px',
+      height: '44px',
+      padding: '0 16px',
+      borderRadius: '8px',
+      border: '1px solid #2563eb',
+      background: '#eff6ff',
+      color: '#1d4ed8',
+      fontWeight: 600,
+      fontSize: '16px',
+      cursor: dqnLoading ? 'not-allowed' : 'pointer'
+    }}
+  >
+    {dqnLoading ? 'Testing...' : 'Test with Sample Patients'}
+  </button>
+</div>
 {dqnError && (
   <p style={{ color: 'red' }}>{dqnError}</p>
 )}
