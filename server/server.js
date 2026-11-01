@@ -84,7 +84,7 @@ app.post('/api/dqn/schedule', async (req, res) => {
     let data;
 
     try {
-      data = JSON.parse(responseText);
+      data = JSON.parse (responseText);
     } catch {
       return res.status(502).json({
         message: 'Python DQN returned a non-JSON response.',
@@ -107,8 +107,6 @@ app.post('/api/dqn/schedule', async (req, res) => {
     });
   }
 });
-console.log('DEBUG: Python DQN schedule received:', data.schedule);
-console.log('DEBUG: Schedule entries:', data.schedule?.length);
 app.post('/api/dqn/full-schedule', async (req, res) => {
   const session = await mongoose.startSession();
 
@@ -147,7 +145,11 @@ app.post('/api/dqn/full-schedule', async (req, res) => {
     if (!response.ok) {
       return res.status(response.status).json(data);
     }
-
+    console.log('DEBUG: Python DQN schedule received:', data.schedule);
+    if (!response.ok) {
+   return res.status(response.status).json(data);
+   }
+    console.log('DEBUG: Schedule entries:', data.schedule?.length);
     if (!Array.isArray(data.schedule)) {
       return res.status(502).json({
         message: 'Python DQN response does not contain a valid schedule array.',
